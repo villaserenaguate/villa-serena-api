@@ -1,0 +1,23 @@
+# Default line ending normalization
+* text=auto
+
+# Source files (LF)
+*.java text diff=java eol=lf
+*.xml text eol=lf
+*.properties text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Build scripts
+mvnw text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaries
+*.class binary
+*.jar binary
+*.war binary
+
