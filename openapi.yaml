@@ -1650,6 +1650,167 @@ paths:
                     mensaje: Solo se puede hacer check-in de reservas confirmadas.
                     detalles: []
 
+  # ====================================================================
+  # /habitaciones — Recepción (HU-REC-07, HU-REC-10, HU-REC-11)
+  # ====================================================================
+  /api/v1/habitaciones:
+    get:
+      tags: [habitaciones]
+      operationId: listarEstadoHabitaciones
+      summary: Estado de las habitaciones
+      description: |
+        HU-REC-10 · RF-HAB-001, RF-HAB-003. Rol `RECEPCION`. Ocupación, condición
+        e indicadores calculados con "hoy" en America/Guatemala. Para una
+        habitación `FUERA_DE_SERVICIO` incluye, en solo lectura, la incidencia que
+        la bloquea (P-02). Los cambios llegan en tiempo real por el WebSocket
+        (`/topic/habitaciones`, parte 2). Lista vacía si nada cumple los filtros.
+      parameters:
+        - name: ocupacion
+          in: query
+          schema:
+            $ref: '#/components/schemas/OcupacionHabitacion'
+        - name: condicion
+          in: query
+          schema:
+            $ref: '#/components/schemas/CondicionHabitacion'
+        - name: tipoHabitacionId
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: piso
+          in: query
+          schema:
+            type: integer
+          example: 2
+      responses:
+        '200':
+          description: Habitaciones activas con su estado.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HabitacionEstado'
+              example:
+                - id: 3
+                  numero: '103'
+                  piso: 1
+                  tipoHabitacion:
+                    id: 1
+                    nombre: Doble Superior
+                  ocupacion: LIBRE
+                  condicion: LIMPIA
+                  llegaHoy: true
+                  saleHoy: false
+                  incidenciaPendiente: false
+                  incidenciaBloqueante: null
+                - id: 9
+                  numero: '201'
+                  piso: 2
+                  tipoHabitacion:
+                    id: 2
+                    nombre: Suite Volcán
+                  ocupacion: LIBRE
+                  condicion: FUERA_DE_SERVICIO
+                  llegaHoy: false
+                  saleHoy: false
+                  incidenciaPendiente: false
+                  incidenciaBloqueante:
+                    id: 15
+                    descripcion: Fuga de agua en el baño.
+                    estado: EN_PROCESO
+                    reportadaEn: '2026-10-02T08:30:00-06:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/habitaciones/disponibles:
+    get:
+      tags: [habitaciones]
+      operationId: listarHabitacionesAsignables
+      summary: Habitaciones que se pueden asignar
+      description: |
+        HU-REC-07 (criterio 2), HU-REC-04 (criterio 2) · RF-HAB-002. Rol
+        `RECEPCION`. Habitaciones activas del tipo indicado que no están
+        `FUERA_DE_SERVICIO` y no tienen otra reserva activa que se traslape con
+        las fechas. No exige que estén limpias. Lista vacía si no hay ninguna.
+      parameters:
+        - name: tipoHabitacionId
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/Id'
+          example: 1
+        - $ref: '#/components/parameters/Entrada'
+        - $ref: '#/components/parameters/Salida'
+      responses:
+        '200':
+          description: Habitaciones asignables.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HabitacionReferencia'
+              example:
+                - id: 3
+                  numero: '103'
+                  piso: 1
+                - id: 4
+                  numero: '104'
+                  piso: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/habitaciones/{id}/marcar-sucia:
+    post:
+      tags: [habitaciones]
+      operationId: marcarHabitacionSucia
+      summary: Marcar una habitación libre como sucia
+      description: |
+        HU-REC-11 · RF-HAB-004. Rol `RECEPCION`. Solo `LIBRE` + `LIMPIA` →
+        `SUCIA`; cualquier otro caso responde 409. Registra fecha, hora y
+        responsable, y publica el cambio en tiempo real. Sin cuerpo.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Habitación marcada como sucia.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HabitacionEstado'
+              example:
+                id: 3
+                numero: '103'
+                piso: 1
+                tipoHabitacion:
+                  id: 1
+                  nombre: Doble Superior
+                ocupacion: LIBRE
+                condicion: SUCIA
+                llegaHoy: false
+                saleHoy: false
+                incidenciaPendiente: false
+                incidenciaBloqueante: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2613,3 +2774,62 @@ components:
       properties:
         habitacionId:
           $ref: '#/components/schemas/Id'
+
+    # ------------------------------------------------------------------
+    # Habitaciones (Recepción)
+    # ------------------------------------------------------------------
+    IncidenciaBloqueante:
+      type: object
+      description: Incidencia que deja la habitación FUERA_DE_SERVICIO (solo lectura para Recepción).
+      required: [id, descripcion, estado, reportadaEn]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        descripcion:
+          type: string
+        estado:
+          $ref: '#/components/schemas/EstadoIncidencia'
+        reportadaEn:
+          $ref: '#/components/schemas/FechaHora'
+    HabitacionEstado:
+      type: object
+      required:
+        - id
+        - numero
+        - piso
+        - tipoHabitacion
+        - ocupacion
+        - condicion
+        - llegaHoy
+        - saleHoy
+        - incidenciaPendiente
+        - incidenciaBloqueante
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        numero:
+          type: string
+          examples: ['103']
+        piso:
+          type: integer
+          examples: [1]
+        tipoHabitacion:
+          $ref: '#/components/schemas/TipoHabitacionReferencia'
+        ocupacion:
+          $ref: '#/components/schemas/OcupacionHabitacion'
+        condicion:
+          $ref: '#/components/schemas/CondicionHabitacion'
+        llegaHoy:
+          type: boolean
+          description: Tiene asignada una reserva CONFIRMADA con entrada hoy.
+        saleHoy:
+          type: boolean
+          description: Su reserva EN_ESTADIA sale hoy.
+        incidenciaPendiente:
+          type: boolean
+          description: Está OCUPADA y tiene una incidencia sin resolver que impide su uso.
+        incidenciaBloqueante:
+          description: Solo si la condición es FUERA_DE_SERVICIO; null en los demás casos.
+          oneOf:
+            - $ref: '#/components/schemas/IncidenciaBloqueante'
+            - type: 'null'
