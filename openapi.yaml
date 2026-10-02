@@ -51,7 +51,245 @@ tags:
     description: Reservas de Recepción (HU-REC-02 a HU-REC-08, HU-REC-12, HU-CM-02)
   - name: habitaciones
     description: Estado de las habitaciones en Recepción (HU-REC-07, HU-REC-10, HU-REC-11)
-paths: {}
+paths:
+  # ====================================================================
+  # /auth — acceso del personal (HU-EMP-01, HU-EMP-02)
+  # ====================================================================
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: iniciarSesion
+      summary: Iniciar sesión del personal
+      description: |
+        HU-EMP-01 · RF-SEG-001. Correo y contraseña del empleado. Si son incorrectos
+        responde un mensaje genérico que no revela si el correo existe. Tras 5
+        intentos fallidos seguidos, la cuenta se bloquea 15 minutos. Un empleado
+        `INACTIVO` no entra. El BFF guarda los tokens en cookies httpOnly y nunca
+        los envía al navegador.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginPeticion'
+            example:
+              correo: ana.perez@villaserena.test
+              contrasena: Temporal123
+      responses:
+        '200':
+          description: Sesión iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SesionEmpleado'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMiJ9.firma
+                refreshToken: 3f8a1c9e-6b2d-4f7a-9c11-0d5e8b7a2f44
+                tipoToken: Bearer
+                expiraEn: 900
+                empleado:
+                  id: 12
+                  nombre: Ana Pérez
+                  correo: ana.perez@villaserena.test
+                  rol: RECEPCION
+                  area: null
+                  debeCambiarContrasena: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Credenciales incorrectas, empleado inactivo o cuenta bloqueada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                credenciales:
+                  summary: Correo o contraseña incorrectos (o empleado inactivo)
+                  value:
+                    codigo: CREDENCIALES_INVALIDAS
+                    mensaje: Correo o contraseña incorrectos.
+                    detalles: []
+                bloqueada:
+                  summary: 5 intentos fallidos seguidos
+                  value:
+                    codigo: CUENTA_BLOQUEADA
+                    mensaje: Cuenta bloqueada por intentos fallidos. Intenta de nuevo en 15 minutos.
+                    detalles: []
+
+  /api/v1/auth/renovar:
+    post:
+      tags: [auth]
+      operationId: renovarSesion
+      summary: Renovar el token de acceso
+      description: |
+        HU-EMP-01 · RF-SEG-001. Recibe el refresh token y emite un par nuevo; el
+        anterior deja de servir (rotación). Revisa que el empleado siga `ACTIVO`.
+        El mismo endpoint lo usará la app del huésped (parte 2), por eso responde
+        solo los tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshPeticion'
+            example:
+              refreshToken: 3f8a1c9e-6b2d-4f7a-9c11-0d5e8b7a2f44
+      responses:
+        '200':
+          description: Tokens renovados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tokens'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMiJ9.nueva
+                refreshToken: 9b0c2d7e-1a4f-4e3b-8c6d-5f7a9e1b3c20
+                tipoToken: Bearer
+                expiraEn: 900
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Refresh token inválido, vencido, ya usado o del empleado inactivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: SESION_VENCIDA
+                mensaje: Tu sesión venció. Inicia sesión de nuevo.
+                detalles: []
+
+  /api/v1/auth/cerrar-sesion:
+    post:
+      tags: [auth]
+      operationId: cerrarSesion
+      summary: Cerrar sesión
+      description: |
+        HU-EMP-01 (criterio 7) · RF-SEG-001. Revoca el refresh token. Se permite
+        aunque el empleado tenga la contraseña temporal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshPeticion'
+            example:
+              refreshToken: 9b0c2d7e-1a4f-4e3b-8c6d-5f7a9e1b3c20
+      responses:
+        '204':
+          description: Sesión cerrada (también si el refresh ya estaba revocado).
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/cambiar-contrasena:
+    post:
+      tags: [auth]
+      operationId: cambiarContrasena
+      summary: Cambiar mi contraseña
+      description: |
+        HU-EMP-02 · RF-SEG-004. Obligatorio mientras `debeCambiarContrasena` sea
+        verdadero; mientras tanto, el resto del API responde 403
+        `CONTRASENA_TEMPORAL` (salvo este endpoint, /cerrar-sesion y /yo).
+        La nueva contraseña: mínimo 8 caracteres, al menos una letra y un número,
+        y distinta de la actual. Emite tokens nuevos sin la marca y revoca los
+        refresh anteriores.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CambiarContrasenaPeticion'
+            example:
+              contrasenaActual: Temporal123
+              contrasenaNueva: VillaSerena2026
+              confirmacion: VillaSerena2026
+      responses:
+        '200':
+          description: Contraseña cambiada; nuevos tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SesionEmpleado'
+              example:
+                accessToken: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMiJ9.otra
+                refreshToken: 7c1e5a3b-2d9f-4b6a-a8e0-4c3b2a1f0e99
+                tipoToken: Bearer
+                expiraEn: 900
+                empleado:
+                  id: 12
+                  nombre: Ana Pérez
+                  correo: ana.perez@villaserena.test
+                  rol: RECEPCION
+                  area: null
+                  debeCambiarContrasena: false
+        '400':
+          description: La contraseña actual es incorrecta, la confirmación no coincide o la nueva no cumple las reglas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                reglas:
+                  summary: La nueva contraseña no cumple las reglas
+                  value:
+                    codigo: CONTRASENA_INVALIDA
+                    mensaje: La nueva contraseña no cumple las reglas.
+                    detalles:
+                      - campo: contrasenaNueva
+                        mensaje: Debe tener al menos un número.
+                actual:
+                  summary: Contraseña actual incorrecta
+                  value:
+                    codigo: CONTRASENA_ACTUAL_INCORRECTA
+                    mensaje: La contraseña actual es incorrecta.
+                    detalles:
+                      - campo: contrasenaActual
+                        mensaje: La contraseña actual es incorrecta.
+                confirmacion:
+                  summary: La confirmación no coincide
+                  value:
+                    codigo: DATOS_INVALIDOS
+                    mensaje: La confirmación no coincide con la nueva contraseña.
+                    detalles:
+                      - campo: confirmacion
+                        mensaje: No coincide con la nueva contraseña.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/auth/yo:
+    get:
+      tags: [auth]
+      operationId: obtenerSesionActual
+      summary: Datos del empleado autenticado
+      description: |
+        HU-EMP-01 · RF-SEG-001. El layout del panel lo usa para confirmar el rol y
+        mostrar "Acceso denegado" si la sección no es suya. Se permite con la
+        contraseña temporal pendiente.
+      responses:
+        '200':
+          description: Empleado de la sesión.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpleadoSesion'
+              example:
+                id: 31
+                nombre: Luis García
+                correo: luis.garcia@villaserena.test
+                rol: MANTENIMIENTO_LIMPIEZA
+                area: LIMPIEZA
+                debeCambiarContrasena: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -232,6 +470,95 @@ components:
       type: string
       description: Área del personal de Mantenimiento/Limpieza.
       enum: [LIMPIEZA, MANTENIMIENTO, AMBAS]
+
+    # ------------------------------------------------------------------
+    # Autenticación
+    # ------------------------------------------------------------------
+    LoginPeticion:
+      type: object
+      required: [correo, contrasena]
+      properties:
+        correo:
+          type: string
+          format: email
+          examples: [ana.perez@villaserena.test]
+        contrasena:
+          type: string
+          minLength: 1
+          examples: [Temporal123]
+    RefreshPeticion:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          examples: [3f8a1c9e-6b2d-4f7a-9c11-0d5e8b7a2f44]
+    Tokens:
+      type: object
+      description: Par de tokens; común a personal y huésped.
+      required: [accessToken, refreshToken, tipoToken, expiraEn]
+      properties:
+        accessToken:
+          type: string
+          description: JWT de acceso (15 minutos).
+        refreshToken:
+          type: string
+          description: Refresh token rotativo (7 días).
+        tipoToken:
+          type: string
+          const: Bearer
+        expiraEn:
+          type: integer
+          description: Segundos de vida del token de acceso.
+          examples: [900]
+    EmpleadoSesion:
+      type: object
+      description: Datos básicos del empleado autenticado.
+      required: [id, nombre, correo, rol, area, debeCambiarContrasena]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        nombre:
+          type: string
+          examples: [Ana Pérez]
+        correo:
+          type: string
+          format: email
+          examples: [ana.perez@villaserena.test]
+        rol:
+          $ref: '#/components/schemas/RolEmpleado'
+        area:
+          description: Solo para MANTENIMIENTO_LIMPIEZA; null en los demás roles.
+          oneOf:
+            - $ref: '#/components/schemas/AreaMyl'
+            - type: 'null'
+        debeCambiarContrasena:
+          type: boolean
+          examples: [false]
+    SesionEmpleado:
+      description: Tokens más los datos del empleado.
+      allOf:
+        - $ref: '#/components/schemas/Tokens'
+        - type: object
+          required: [empleado]
+          properties:
+            empleado:
+              $ref: '#/components/schemas/EmpleadoSesion'
+    CambiarContrasenaPeticion:
+      type: object
+      required: [contrasenaActual, contrasenaNueva, confirmacion]
+      properties:
+        contrasenaActual:
+          type: string
+          minLength: 1
+        contrasenaNueva:
+          type: string
+          minLength: 8
+          description: Mínimo 8 caracteres, al menos una letra y un número, distinta de la actual.
+        confirmacion:
+          type: string
+          minLength: 8
 
     # ------------------------------------------------------------------
     # Huéspedes
