@@ -290,6 +290,469 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
 
+  # ====================================================================
+  # /publico — web pública sin sesión (HU-HUE-01 a HU-HUE-06)
+  # ====================================================================
+  /api/v1/publico/hotel:
+    get:
+      tags: [publico]
+      operationId: obtenerHotel
+      summary: Información del hotel
+      description: HU-HUE-01 · RF-ADM-007. Datos de la configuración del hotel (datos iniciales).
+      security: []
+      responses:
+        '200':
+          description: Información pública del hotel.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Hotel'
+              example:
+                nombre: Villa Serena
+                descripcion: Hotel boutique de 12 habitaciones en el corazón de Antigua Guatemala.
+                fotos:
+                  - http://localhost:9000/villa-serena-publico/hotel/fachada.jpg
+                  - http://localhost:9000/villa-serena-publico/hotel/jardin.jpg
+                ubicacion:
+                  direccion: 5a Avenida Norte 12, Antigua Guatemala, Sacatepéquez
+                  latitud: 14.5586
+                  longitud: -90.7295
+                contacto:
+                  telefono: '+502 7832 0000'
+                  correo: reservas@villaserena.test
+                horaCheckIn: '15:00'
+                horaCheckOut: '12:00'
+
+  /api/v1/publico/tipos-habitacion:
+    get:
+      tags: [publico]
+      operationId: listarTiposHabitacionPublicos
+      summary: Catálogo de tipos de habitación
+      description: |
+        HU-HUE-02 · RF-HAB-006. Solo tipos `ACTIVO`. Lista vacía si no hay
+        ninguno (la web muestra un mensaje). Recepción y el canal simulado también
+        usan esta lista para elegir el tipo.
+      security: []
+      responses:
+        '200':
+          description: Tipos de habitación activos.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TipoHabitacionPublico'
+              example:
+                - id: 1
+                  nombre: Doble Superior
+                  descripcion: Dos camas matrimoniales con vista al jardín.
+                  capacidad: 4
+                  precioBaseNoche: 850.00
+                  fotos:
+                    - http://localhost:9000/villa-serena-publico/tipos/1/principal.jpg
+                - id: 2
+                  nombre: Suite Volcán
+                  descripcion: Cama king, terraza privada y vista al Volcán de Agua.
+                  capacidad: 2
+                  precioBaseNoche: 1450.00
+                  fotos: []
+
+  /api/v1/publico/tipos-habitacion/{id}:
+    get:
+      tags: [publico]
+      operationId: obtenerTipoHabitacionPublico
+      summary: Detalle de un tipo de habitación
+      description: HU-HUE-02 (criterio 3) · RF-HAB-006. Un tipo `INACTIVO` responde 404.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Detalle del tipo con todas sus fotos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TipoHabitacionPublico'
+              example:
+                id: 1
+                nombre: Doble Superior
+                descripcion: Dos camas matrimoniales con vista al jardín.
+                capacidad: 4
+                precioBaseNoche: 850.00
+                fotos:
+                  - http://localhost:9000/villa-serena-publico/tipos/1/principal.jpg
+                  - http://localhost:9000/villa-serena-publico/tipos/1/bano.jpg
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/publico/disponibilidad:
+    get:
+      tags: [publico]
+      operationId: buscarDisponibilidadPublica
+      summary: Buscar disponibilidad y precio total
+      description: |
+        HU-HUE-03, HU-HUE-04 · RF-RES-001, RF-TAR-004. Reglas: 1 a 30 noches, sin
+        fechas pasadas, salida posterior a la entrada y entrada a no más de 365
+        días ("hoy" en America/Guatemala). Solo tipos activos con capacidad
+        suficiente y cupo en **todas** las noches. Precio por noche = base ×
+        (1 + % temporada) × (1 + % fin de semana si es viernes o sábado),
+        redondeado a 2 decimales. Lista vacía si no hay disponibilidad. No
+        muestra cuántas habitaciones quedan (solo Recepción lo ve).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Entrada'
+        - $ref: '#/components/parameters/Salida'
+        - $ref: '#/components/parameters/Huespedes'
+      responses:
+        '200':
+          description: Tipos disponibles con su precio total y el desglose por noche.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OpcionDisponiblePublica'
+              example:
+                - tipoHabitacion:
+                    id: 1
+                    nombre: Doble Superior
+                    descripcion: Dos camas matrimoniales con vista al jardín.
+                    capacidad: 4
+                    precioBaseNoche: 850.00
+                    fotos:
+                      - http://localhost:9000/villa-serena-publico/tipos/1/principal.jpg
+                  noches: 2
+                  total: 1912.50
+                  desglose:
+                    - fecha: '2026-10-15'
+                      precio: 850.00
+                      temporada: null
+                      finDeSemana: false
+                    - fecha: '2026-10-16'
+                      precio: 1062.50
+                      temporada: null
+                      finDeSemana: true
+        '400':
+          description: Las fechas o el número de huéspedes no cumplen las reglas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: FECHAS_INVALIDAS
+                mensaje: La estadía debe ser de 1 a 30 noches.
+                detalles:
+                  - campo: salida
+                    mensaje: La estadía debe ser de 1 a 30 noches.
+
+  /api/v1/publico/reservas:
+    post:
+      tags: [publico]
+      operationId: crearReservaWeb
+      summary: Crear la reserva web
+      description: |
+        HU-HUE-05 · RF-RES-008, RF-HUE-001, RF-PAG-007, RF-RES-010. Revalida la
+        disponibilidad antes de crear. Si ya existe un huésped con ese correo, la
+        reserva se asocia a ese perfil sin cambiar sus datos. La reserva nace
+        `PENDIENTE_PAGO`, canal `DIRECTO_WEB`, con precio fijo y cuenta `ABIERTA`
+        con el cargo por alojamiento. Si no se paga en 30 minutos se cancela sola.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservaWebPeticion'
+            example:
+              tipoHabitacionId: 1
+              entrada: '2026-10-15'
+              salida: '2026-10-17'
+              numeroHuespedes: 2
+              huesped:
+                nombreCompleto: María José López
+                correo: maria.lopez@example.com
+                telefono: '+502 5555 1234'
+                nacionalidad: Guatemalteca
+                tipoDocumento: DPI
+                numeroDocumento: '2547896320101'
+      responses:
+        '201':
+          description: Reserva creada, pendiente de pago.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaWebCreada'
+              example:
+                codigo: VS-7K2M9Q
+                estado: PENDIENTE_PAGO
+                tipoHabitacion:
+                  id: 1
+                  nombre: Doble Superior
+                entrada: '2026-10-15'
+                salida: '2026-10-17'
+                noches: 2
+                numeroHuespedes: 2
+                total: 1912.50
+                pagoVenceEn: '2026-10-02T15:00:00-06:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Ya no hay disponibilidad para esas fechas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: SIN_DISPONIBILIDAD
+                mensaje: Ya no hay habitaciones disponibles de ese tipo para esas fechas.
+                detalles: []
+
+  /api/v1/publico/reservas/{codigo}/pago:
+    post:
+      tags: [publico]
+      operationId: iniciarPagoReserva
+      summary: Iniciar (o retomar) el pago con Stripe
+      description: |
+        HU-HUE-06 · RF-PAG-003, RF-PAG-012. Crea **una** sesión de Stripe
+        Checkout por el 100 % del total, o devuelve la misma si sigue abierta.
+        El pago queda `PENDIENTE`. Stripe regresa (pagado o cancelado) a
+        `{WEB_URL}/reserva/resultado?codigo={codigo}`. El pago se confirma solo
+        por el webhook, nunca por la redirección.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      responses:
+        '200':
+          description: Enlace de la página de pago de Stripe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagoIniciado'
+              example:
+                urlPago: https://checkout.stripe.com/c/pay/cs_test_a1B2c3D4
+                expiraEn: '2026-10-02T15:00:00-06:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La reserva ya no está pendiente de pago.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: RESERVA_NO_PENDIENTE
+                mensaje: La reserva ya no está pendiente de pago.
+                detalles: []
+
+  /api/v1/publico/reservas/{codigo}/estado:
+    get:
+      tags: [publico]
+      operationId: obtenerEstadoReservaPublica
+      summary: Estado de la reserva al volver de Stripe
+      description: |
+        HU-HUE-06 (criterio 6) · RF-PAG-004. Solo el estado de la reserva y de su
+        pago (VIS-03); ningún dato personal. Casos de la página: `CONFIRMADA` →
+        confirmada; `PENDIENTE_PAGO` → pago en proceso o no completado (con
+        reintento si `puedeReintentar`); `CANCELADA` → venció el plazo de 30
+        minutos.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      responses:
+        '200':
+          description: Estado actual.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstadoReservaPublico'
+              examples:
+                confirmada:
+                  summary: Pago aprobado por el webhook
+                  value:
+                    codigo: VS-7K2M9Q
+                    estadoReserva: CONFIRMADA
+                    estadoPago: APROBADO
+                    puedeReintentar: false
+                pendiente:
+                  summary: Aún sin confirmar
+                  value:
+                    codigo: VS-7K2M9Q
+                    estadoReserva: PENDIENTE_PAGO
+                    estadoPago: PENDIENTE
+                    puedeReintentar: true
+                vencida:
+                  summary: Cancelada a los 30 minutos
+                  value:
+                    codigo: VS-7K2M9Q
+                    estadoReserva: CANCELADA
+                    estadoPago: FALLIDO
+                    puedeReintentar: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ====================================================================
+  # /pagos — webhook de Stripe
+  # ====================================================================
+  /api/v1/pagos/stripe/webhook:
+    post:
+      tags: [pagos]
+      operationId: recibirWebhookStripe
+      summary: Aviso de Stripe (webhook)
+      description: |
+        HU-HUE-06 · RF-PAG-004. Verifica la firma con `STRIPE_WEBHOOK_SECRET` y es
+        idempotente por el id del evento. Solo procesa 2 eventos:
+        `checkout.session.completed` (pago `APROBADO`; la reserva pasa a
+        `CONFIRMADA` y se envía el correo) y `checkout.session.expired` (pago
+        `FALLIDO`). Cualquier otro evento se responde 200 y se ignora. El BFF
+        bloquea esta ruta; Stripe CLI la llama directo.
+      security:
+        - stripeFirma: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventoStripe'
+            example:
+              id: evt_1Q2w3E4r5T6y7U8i
+              type: checkout.session.completed
+              data:
+                object:
+                  id: cs_test_a1B2c3D4
+                  payment_status: paid
+                  metadata:
+                    codigoReserva: VS-7K2M9Q
+      responses:
+        '200':
+          description: Evento recibido (también si ya se había procesado o se ignora).
+        '400':
+          description: Firma inválida o cuerpo ilegible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: FIRMA_INVALIDA
+                mensaje: La firma del aviso de Stripe no es válida.
+                detalles: []
+
+  # ====================================================================
+  # /canal — API para canales externos (HU-CM-01)
+  # ====================================================================
+  /api/v1/canal/reservas:
+    post:
+      tags: [canal]
+      operationId: crearReservaCanal
+      summary: Recibir una reserva de un canal externo
+      description: |
+        HU-CM-01 · RF-CM-002, RF-CM-008, RF-PAG-013, RF-RES-010. Autenticación con
+        `X-Canal-Codigo` y `X-Canal-Clave` (comparada con su hash). Valida los 6
+        datos del huésped, 1 a 30 noches, sin fechas pasadas ni a más de 365
+        días, capacidad y tipo activo, y la disponibilidad con las mismas reglas
+        de la web. Crea la reserva `CONFIRMADA` con el canal y el identificador
+        externo, la cuenta con un cargo por alojamiento igual a `montoTotal` y un
+        pago `APROBADO` con método `CANAL`. Si el identificador externo ya existe
+        en ese canal, responde **200** con la reserva existente y no crea nada.
+        El canal simulado (BFF de la web) llama a este mismo endpoint.
+      security:
+        - canalCodigo: []
+          canalClave: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservaCanalPeticion'
+            example:
+              identificadorExterno: BK-99887766
+              tipoHabitacionId: 2
+              entrada: '2026-11-03'
+              salida: '2026-11-06'
+              numeroHuespedes: 2
+              montoTotal: 4350.00
+              huesped:
+                nombreCompleto: John Smith
+                correo: john.smith@example.com
+                telefono: '+1 555 0100'
+                nacionalidad: Estadounidense
+                tipoDocumento: PASAPORTE
+                numeroDocumento: '567890123'
+      responses:
+        '201':
+          description: Reserva creada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaCanalRespuesta'
+              example:
+                codigo: VS-Q4R8T2
+                estado: CONFIRMADA
+                canal: BOOKING
+                identificadorExterno: BK-99887766
+                tipoHabitacion:
+                  id: 2
+                  nombre: Suite Volcán
+                entrada: '2026-11-03'
+                salida: '2026-11-06'
+                numeroHuespedes: 2
+                montoTotal: 4350.00
+        '200':
+          description: La reserva ya existía (mismo canal e identificador externo); no se creó otra.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaCanalRespuesta'
+              example:
+                codigo: VS-Q4R8T2
+                estado: CONFIRMADA
+                canal: BOOKING
+                identificadorExterno: BK-99887766
+                tipoHabitacion:
+                  id: 2
+                  nombre: Suite Volcán
+                entrada: '2026-11-03'
+                salida: '2026-11-06'
+                numeroHuespedes: 2
+                montoTotal: 4350.00
+        '400':
+          description: Faltan datos o no cumplen las reglas.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: DATOS_INVALIDOS
+                mensaje: El número de huéspedes supera la capacidad del tipo de habitación.
+                detalles:
+                  - campo: numeroHuespedes
+                    mensaje: La capacidad máxima de Suite Volcán es 2.
+        '401':
+          description: El canal no existe o la clave es incorrecta.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: CANAL_NO_AUTORIZADO
+                mensaje: Canal o clave incorrectos.
+                detalles: []
+        '409':
+          description: No hay disponibilidad.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: SIN_DISPONIBILIDAD
+                mensaje: No hay habitaciones disponibles de ese tipo para esas fechas.
+                detalles: []
+
 components:
   securitySchemes:
     bearerAuth:
@@ -312,6 +775,47 @@ components:
       in: header
       name: Stripe-Signature
       description: Firma del webhook de Stripe.
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+    CodigoReservaPath:
+      name: codigo
+      in: path
+      required: true
+      description: Código de la reserva.
+      schema:
+        $ref: '#/components/schemas/CodigoReserva'
+      example: VS-7K2M9Q
+    Entrada:
+      name: entrada
+      in: query
+      required: true
+      description: Fecha de entrada (YYYY-MM-DD).
+      schema:
+        $ref: '#/components/schemas/FechaEstadia'
+      example: '2026-10-15'
+    Salida:
+      name: salida
+      in: query
+      required: true
+      description: Fecha de salida (YYYY-MM-DD).
+      schema:
+        $ref: '#/components/schemas/FechaEstadia'
+      example: '2026-10-17'
+    Huespedes:
+      name: huespedes
+      in: query
+      required: true
+      description: Número de huéspedes.
+      schema:
+        type: integer
+        minimum: 1
+      example: 2
 
   responses:
     BadRequest:
@@ -668,6 +1172,252 @@ components:
         piso:
           type: integer
           examples: [2]
+
+    # ------------------------------------------------------------------
+    # Web pública
+    # ------------------------------------------------------------------
+    UrlFoto:
+      type: string
+      format: uri
+      description: URL pública de la foto (bucket público de MinIO).
+      examples: [http://localhost:9000/villa-serena-publico/hotel/fachada.jpg]
+    Hotel:
+      type: object
+      required: [nombre, descripcion, fotos, ubicacion, contacto, horaCheckIn, horaCheckOut]
+      properties:
+        nombre:
+          type: string
+          examples: [Villa Serena]
+        descripcion:
+          type: string
+        fotos:
+          type: array
+          items:
+            $ref: '#/components/schemas/UrlFoto'
+        ubicacion:
+          type: object
+          required: [direccion, latitud, longitud]
+          properties:
+            direccion:
+              type: string
+            latitud:
+              type: [number, 'null']
+            longitud:
+              type: [number, 'null']
+        contacto:
+          type: object
+          required: [telefono, correo]
+          properties:
+            telefono:
+              type: string
+            correo:
+              type: string
+              format: email
+        horaCheckIn:
+          type: string
+          description: Hora fija de check-in.
+          const: '15:00'
+        horaCheckOut:
+          type: string
+          description: Hora fija de check-out.
+          const: '12:00'
+    TipoHabitacionPublico:
+      type: object
+      required: [id, nombre, descripcion, capacidad, precioBaseNoche, fotos]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        nombre:
+          type: string
+          examples: [Doble Superior]
+        descripcion:
+          type: string
+        capacidad:
+          type: integer
+          minimum: 1
+          description: Capacidad máxima de huéspedes.
+          examples: [4]
+        precioBaseNoche:
+          $ref: '#/components/schemas/Monto'
+        fotos:
+          type: array
+          description: Puede estar vacía (la web usa una imagen genérica).
+          items:
+            $ref: '#/components/schemas/UrlFoto'
+    PrecioNoche:
+      type: object
+      description: Precio de una noche y los ajustes que lleva.
+      required: [fecha, precio, temporada, finDeSemana]
+      properties:
+        fecha:
+          $ref: '#/components/schemas/FechaEstadia'
+        precio:
+          $ref: '#/components/schemas/Monto'
+        temporada:
+          type: [string, 'null']
+          description: Nombre de la temporada aplicada; null si no hay.
+          examples: [Temporada alta]
+        finDeSemana:
+          type: boolean
+          description: Verdadero si es viernes o sábado (lleva el ajuste de fin de semana).
+    CotizacionEstadia:
+      type: object
+      required: [noches, total, desglose]
+      properties:
+        noches:
+          type: integer
+          minimum: 1
+          maximum: 30
+        total:
+          $ref: '#/components/schemas/Monto'
+        desglose:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrecioNoche'
+    OpcionDisponiblePublica:
+      description: Tipo disponible para la web pública (sin cantidad de habitaciones restantes).
+      allOf:
+        - type: object
+          required: [tipoHabitacion]
+          properties:
+            tipoHabitacion:
+              $ref: '#/components/schemas/TipoHabitacionPublico'
+        - $ref: '#/components/schemas/CotizacionEstadia'
+    ReservaWebPeticion:
+      type: object
+      required: [tipoHabitacionId, entrada, salida, numeroHuespedes, huesped]
+      properties:
+        tipoHabitacionId:
+          $ref: '#/components/schemas/Id'
+        entrada:
+          $ref: '#/components/schemas/FechaEstadia'
+        salida:
+          $ref: '#/components/schemas/FechaEstadia'
+        numeroHuespedes:
+          type: integer
+          minimum: 1
+        huesped:
+          $ref: '#/components/schemas/HuespedDatos'
+    ReservaWebCreada:
+      type: object
+      required: [codigo, estado, tipoHabitacion, entrada, salida, noches, numeroHuespedes, total, pagoVenceEn]
+      properties:
+        codigo:
+          $ref: '#/components/schemas/CodigoReserva'
+        estado:
+          $ref: '#/components/schemas/EstadoReserva'
+        tipoHabitacion:
+          $ref: '#/components/schemas/TipoHabitacionReferencia'
+        entrada:
+          $ref: '#/components/schemas/FechaEstadia'
+        salida:
+          $ref: '#/components/schemas/FechaEstadia'
+        noches:
+          type: integer
+        numeroHuespedes:
+          type: integer
+        total:
+          $ref: '#/components/schemas/Monto'
+        pagoVenceEn:
+          description: Momento en que la reserva se cancela sola si no se paga (30 minutos).
+          allOf:
+            - $ref: '#/components/schemas/FechaHora'
+    PagoIniciado:
+      type: object
+      required: [urlPago, expiraEn]
+      properties:
+        urlPago:
+          type: string
+          format: uri
+          description: Página de Stripe Checkout.
+        expiraEn:
+          $ref: '#/components/schemas/FechaHora'
+    EstadoReservaPublico:
+      type: object
+      description: Solo el estado; sin datos personales (VIS-03).
+      required: [codigo, estadoReserva, estadoPago, puedeReintentar]
+      properties:
+        codigo:
+          $ref: '#/components/schemas/CodigoReserva'
+        estadoReserva:
+          $ref: '#/components/schemas/EstadoReserva'
+        estadoPago:
+          description: Estado del pago en línea de la reserva; null si aún no se inició.
+          oneOf:
+            - $ref: '#/components/schemas/EstadoPago'
+            - type: 'null'
+        puedeReintentar:
+          type: boolean
+          description: Verdadero mientras la reserva siga PENDIENTE_PAGO.
+
+    # ------------------------------------------------------------------
+    # Stripe y canal
+    # ------------------------------------------------------------------
+    EventoStripe:
+      type: object
+      description: Evento de Stripe tal como lo envía Stripe (solo se listan los campos usados).
+      required: [id, type, data]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          examples: [checkout.session.completed, checkout.session.expired]
+        data:
+          type: object
+          required: [object]
+          properties:
+            object:
+              type: object
+              additionalProperties: true
+      additionalProperties: true
+    ReservaCanalPeticion:
+      type: object
+      required: [identificadorExterno, tipoHabitacionId, entrada, salida, numeroHuespedes, montoTotal, huesped]
+      properties:
+        identificadorExterno:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: Identificador de la reserva en el canal; único por canal.
+        tipoHabitacionId:
+          $ref: '#/components/schemas/Id'
+        entrada:
+          $ref: '#/components/schemas/FechaEstadia'
+        salida:
+          $ref: '#/components/schemas/FechaEstadia'
+        numeroHuespedes:
+          type: integer
+          minimum: 1
+        montoTotal:
+          description: Monto total cobrado por el canal, en quetzales.
+          allOf:
+            - $ref: '#/components/schemas/Monto'
+          exclusiveMinimum: 0
+        huesped:
+          $ref: '#/components/schemas/HuespedDatos'
+    ReservaCanalRespuesta:
+      type: object
+      required: [codigo, estado, canal, identificadorExterno, tipoHabitacion, entrada, salida, numeroHuespedes, montoTotal]
+      properties:
+        codigo:
+          $ref: '#/components/schemas/CodigoReserva'
+        estado:
+          $ref: '#/components/schemas/EstadoReserva'
+        canal:
+          $ref: '#/components/schemas/CanalOrigen'
+        identificadorExterno:
+          type: string
+        tipoHabitacion:
+          $ref: '#/components/schemas/TipoHabitacionReferencia'
+        entrada:
+          $ref: '#/components/schemas/FechaEstadia'
+        salida:
+          $ref: '#/components/schemas/FechaEstadia'
+        numeroHuespedes:
+          type: integer
+        montoTotal:
+          $ref: '#/components/schemas/Monto'
 
     # ------------------------------------------------------------------
     # Reservas (Recepción)
