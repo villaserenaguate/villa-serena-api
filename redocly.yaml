@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # En el hito el API corre en local (http://localhost:8080).
+  no-server-example.com: off
+  # Proyecto académico sin licencia publicada.
+  info-license: off
