@@ -753,6 +753,903 @@ paths:
                 mensaje: No hay habitaciones disponibles de ese tipo para esas fechas.
                 detalles: []
 
+  # ====================================================================
+  # /huespedes — Recepción (HU-REC-01)
+  # ====================================================================
+  /api/v1/huespedes:
+    post:
+      tags: [huespedes]
+      operationId: registrarHuesped
+      summary: Registrar un huésped
+      description: |
+        HU-REC-01 · RF-HUE-001. Rol `RECEPCION`. Los 6 datos son obligatorios. El
+        correo identifica al huésped: si ya existe, responde 200 con el perfil
+        existente y `yaExistia: true` (no crea otro ni cambia sus datos).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HuespedDatos'
+            example:
+              nombreCompleto: María José López
+              correo: maria.lopez@example.com
+              telefono: '+502 5555 1234'
+              nacionalidad: Guatemalteca
+              tipoDocumento: DPI
+              numeroDocumento: '2547896320101'
+      responses:
+        '201':
+          description: Huésped nuevo registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistroHuespedRespuesta'
+              example:
+                yaExistia: false
+                huesped:
+                  id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+        '200':
+          description: Ya existía un huésped con ese correo; se devuelve su perfil sin cambios.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistroHuespedRespuesta'
+              example:
+                yaExistia: true
+                huesped:
+                  id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    get:
+      tags: [huespedes]
+      operationId: buscarHuespedes
+      summary: Buscar huéspedes
+      description: |
+        HU-REC-01, HU-REC-04 (criterio 1) · RF-HUE-001. Rol `RECEPCION`. Busca por
+        nombre, número de documento o correo para asociar el huésped a una
+        reserva. Lista vacía si no hay coincidencias.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Texto a buscar (mínimo 2 caracteres).
+          schema:
+            type: string
+            minLength: 2
+          example: lópez
+      responses:
+        '200':
+          description: Huéspedes encontrados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Huesped'
+              example:
+                - id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ====================================================================
+  # /reservas — Recepción (HU-REC-02 a HU-REC-08, HU-REC-12, HU-CM-02)
+  # ====================================================================
+  /api/v1/reservas/disponibilidad:
+    get:
+      tags: [reservas]
+      operationId: buscarDisponibilidadRecepcion
+      summary: Consultar disponibilidad (Recepción)
+      description: |
+        HU-REC-03 · RF-RES-001, RF-TAR-004. Rol `RECEPCION`. Mismas reglas y
+        cálculo que la web pública, y además cuántas habitaciones quedan de cada
+        tipo en todo el rango (el mínimo entre las noches). Lista vacía si no hay
+        disponibilidad.
+      parameters:
+        - $ref: '#/components/parameters/Entrada'
+        - $ref: '#/components/parameters/Salida'
+        - $ref: '#/components/parameters/Huespedes'
+      responses:
+        '200':
+          description: Tipos disponibles.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OpcionDisponibleRecepcion'
+              example:
+                - tipoHabitacion:
+                    id: 1
+                    nombre: Doble Superior
+                  capacidad: 4
+                  habitacionesDisponibles: 3
+                  noches: 2
+                  total: 1912.50
+                  desglose:
+                    - fecha: '2026-10-15'
+                      precio: 850.00
+                      temporada: null
+                      finDeSemana: false
+                    - fecha: '2026-10-16'
+                      precio: 1062.50
+                      temporada: null
+                      finDeSemana: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/reservas:
+    post:
+      tags: [reservas]
+      operationId: crearReservaRecepcion
+      summary: Crear una reserva desde Recepción
+      description: |
+        HU-REC-04 · RF-RES-002, RF-RES-003, RF-PAG-007, RF-RES-010. Rol
+        `RECEPCION`. El huésped se registra antes con POST /huespedes. Mismas
+        reglas de HU-REC-03; la habitación es opcional (reglas de HU-REC-07).
+        Revalida la disponibilidad al guardar. Nace `CONFIRMADA`, canal
+        `RECEPCION`, con el recepcionista que la creó y la cuenta `ABIERTA` con el
+        cargo por alojamiento, **sin pago** (se paga en el check-out). Envía el
+        correo de confirmación.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservaRecepcionPeticion'
+            example:
+              huespedId: 45
+              tipoHabitacionId: 1
+              entrada: '2026-10-15'
+              salida: '2026-10-17'
+              numeroHuespedes: 2
+              habitacionId: 3
+      responses:
+        '201':
+          description: Reserva creada y confirmada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaDetalle'
+              example:
+                codigo: VS-H3N8P1
+                estado: CONFIRMADA
+                canal: RECEPCION
+                identificadorExterno: null
+                entrada: '2026-10-15'
+                salida: '2026-10-17'
+                noches: 2
+                numeroHuespedes: 2
+                tipoHabitacion:
+                  id: 1
+                  nombre: Doble Superior
+                habitacion:
+                  id: 3
+                  numero: '103'
+                  piso: 1
+                huesped:
+                  id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+                huespedesAdicionales: []
+                total: 1912.50
+                saldoPendiente: 1912.50
+                creadaEn: '2026-10-02T10:15:00-06:00'
+                historial:
+                  - estadoAnterior: null
+                    estadoNuevo: CONFIRMADA
+                    responsable: Ana Pérez
+                    fechaHora: '2026-10-02T10:15:00-06:00'
+                    motivo: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: El huésped, el tipo o la habitación no existen.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: NO_ENCONTRADO
+                mensaje: No se encontró el huésped indicado.
+                detalles: []
+        '409':
+          description: Sin disponibilidad, o la habitación elegida ya está ocupada en esas fechas o fuera de servicio.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: SIN_DISPONIBILIDAD
+                mensaje: Ya no hay habitaciones disponibles de ese tipo para esas fechas.
+                detalles: []
+    get:
+      tags: [reservas]
+      operationId: buscarReservas
+      summary: Buscar reservas
+      description: |
+        HU-REC-06, HU-CM-02 · RF-RES-006, RF-RES-007, RF-CM-004. Rol `RECEPCION`.
+        Filtros combinables. `desde`/`hasta` devuelven las reservas cuya estadía
+        se cruza con ese rango. `rapido=LLEGAN_HOY`: `CONFIRMADA` con entrada hoy;
+        `rapido=SALEN_HOY`: `EN_ESTADIA` con salida hoy ("hoy" en
+        America/Guatemala). Paginada (la única lista paginada del API).
+      parameters:
+        - name: texto
+          in: query
+          description: Nombre del huésped principal o número de documento.
+          schema:
+            type: string
+          example: lópez
+        - name: codigo
+          in: query
+          schema:
+            $ref: '#/components/schemas/CodigoReserva'
+        - name: desde
+          in: query
+          schema:
+            $ref: '#/components/schemas/FechaEstadia'
+        - name: hasta
+          in: query
+          schema:
+            $ref: '#/components/schemas/FechaEstadia'
+        - name: estado
+          in: query
+          schema:
+            $ref: '#/components/schemas/EstadoReserva'
+        - name: canal
+          in: query
+          schema:
+            $ref: '#/components/schemas/CanalOrigen'
+        - name: rapido
+          in: query
+          description: Filtro rápido; si se envía, se combina con los demás.
+          schema:
+            type: string
+            enum: [LLEGAN_HOY, SALEN_HOY]
+        - name: page
+          in: query
+          description: Página, empezando en 0.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Tamaño de página.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Página de resultados (vacía si no hay coincidencias).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaReservas'
+              example:
+                contenido:
+                  - codigo: VS-Q4R8T2
+                    huespedPrincipal:
+                      id: 52
+                      nombreCompleto: John Smith
+                    entrada: '2026-11-03'
+                    salida: '2026-11-06'
+                    noches: 3
+                    numeroHuespedes: 2
+                    tipoHabitacion:
+                      id: 2
+                      nombre: Suite Volcán
+                    habitacion: null
+                    estado: CONFIRMADA
+                    canal: BOOKING
+                    identificadorExterno: BK-99887766
+                    total: 4350.00
+                    saldoPendiente: 0.00
+                page: 0
+                size: 20
+                totalElementos: 1
+                totalPaginas: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/reservas/calendario:
+    get:
+      tags: [reservas]
+      operationId: obtenerCalendarioReservas
+      summary: Datos del calendario Gantt
+      description: |
+        HU-REC-08 · RF-RES-012. Rol `RECEPCION`. Habitaciones agrupadas por tipo y
+        las reservas activas o `FINALIZADA` (nunca `CANCELADA`) que se cruzan con
+        el rango. Una reserva con `habitacionId: null` va en la fila
+        "Sin asignar". Solo consulta; no es de tiempo real.
+      parameters:
+        - name: desde
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/FechaEstadia'
+          example: '2026-10-01'
+        - name: hasta
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/FechaEstadia'
+          example: '2026-10-31'
+      responses:
+        '200':
+          description: Datos para el Gantt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarioReservas'
+              example:
+                desde: '2026-10-01'
+                hasta: '2026-10-31'
+                grupos:
+                  - tipoHabitacion:
+                      id: 1
+                      nombre: Doble Superior
+                    habitaciones:
+                      - id: 3
+                        numero: '103'
+                        piso: 1
+                      - id: 4
+                        numero: '104'
+                        piso: 1
+                reservas:
+                  - codigo: VS-H3N8P1
+                    huespedPrincipal: María José López
+                    entrada: '2026-10-15'
+                    salida: '2026-10-17'
+                    estado: CONFIRMADA
+                    canal: RECEPCION
+                    tipoHabitacionId: 1
+                    habitacionId: 3
+                  - codigo: VS-Q4R8T2
+                    huespedPrincipal: John Smith
+                    entrada: '2026-10-20'
+                    salida: '2026-10-23'
+                    estado: CONFIRMADA
+                    canal: BOOKING
+                    tipoHabitacionId: 2
+                    habitacionId: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/reservas/{codigo}:
+    get:
+      tags: [reservas]
+      operationId: obtenerReserva
+      summary: Detalle de una reserva
+      description: |
+        HU-REC-06 (criterio 5), HU-REC-02 (criterio 4), HU-CM-02 · RF-RES-006,
+        RF-SEG-003. Rol `RECEPCION`. Incluye huésped, adicionales, canal,
+        identificador externo e historial de estados. La web decide qué acciones
+        mostrar según `estado` y `canal`.
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      responses:
+        '200':
+          description: Detalle de la reserva.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaDetalle'
+              example:
+                codigo: VS-7K2M9Q
+                estado: EN_ESTADIA
+                canal: DIRECTO_WEB
+                identificadorExterno: null
+                entrada: '2026-10-01'
+                salida: '2026-10-04'
+                noches: 3
+                numeroHuespedes: 2
+                tipoHabitacion:
+                  id: 1
+                  nombre: Doble Superior
+                habitacion:
+                  id: 4
+                  numero: '104'
+                  piso: 1
+                huesped:
+                  id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+                huespedesAdicionales:
+                  - id: 7
+                    nombreCompleto: Carlos López
+                    tipoDocumento: PASAPORTE
+                    numeroDocumento: P1234567
+                    nacionalidad: Mexicana
+                total: 2975.00
+                saldoPendiente: 0.00
+                creadaEn: '2026-09-20T09:02:11-06:00'
+                historial:
+                  - estadoAnterior: null
+                    estadoNuevo: PENDIENTE_PAGO
+                    responsable: Cliente web
+                    fechaHora: '2026-09-20T09:02:11-06:00'
+                    motivo: null
+                  - estadoAnterior: PENDIENTE_PAGO
+                    estadoNuevo: CONFIRMADA
+                    responsable: SISTEMA
+                    fechaHora: '2026-09-20T09:04:40-06:00'
+                    motivo: null
+                  - estadoAnterior: CONFIRMADA
+                    estadoNuevo: EN_ESTADIA
+                    responsable: Ana Pérez
+                    fechaHora: '2026-10-01T14:20:00-06:00'
+                    motivo: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/reservas/{codigo}/huespedes-adicionales:
+    post:
+      tags: [reservas]
+      operationId: agregarHuespedAdicional
+      summary: Registrar un huésped adicional
+      description: |
+        HU-REC-02 · RF-HUE-002. Rol `RECEPCION`. Solo reservas `CONFIRMADA` o
+        `EN_ESTADIA`. Principal + adicionales no puede superar el número de
+        huéspedes de la reserva. Los adicionales no tienen acceso a la app.
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HuespedAdicionalDatos'
+            example:
+              nombreCompleto: Carlos López
+              tipoDocumento: PASAPORTE
+              numeroDocumento: P1234567
+              nacionalidad: Mexicana
+      responses:
+        '201':
+          description: Huésped adicional registrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HuespedAdicional'
+              example:
+                id: 7
+                nombreCompleto: Carlos López
+                tipoDocumento: PASAPORTE
+                numeroDocumento: P1234567
+                nacionalidad: Mexicana
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Se supera el número de huéspedes o el estado de la reserva no lo permite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                capacidad:
+                  summary: Ya están todos los huéspedes registrados
+                  value:
+                    codigo: HUESPEDES_EXCEDIDOS
+                    mensaje: La reserva es para 2 huéspedes y ya están todos registrados.
+                    detalles: []
+                estado:
+                  summary: Reserva en un estado que no lo permite
+                  value:
+                    codigo: ESTADO_INVALIDO
+                    mensaje: Solo se agregan huéspedes a reservas confirmadas o en estadía.
+                    detalles: []
+
+  /api/v1/reservas/{codigo}/cancelacion:
+    get:
+      tags: [reservas]
+      operationId: obtenerVistaPreviaCancelacion
+      summary: Vista previa de la cancelación
+      description: |
+        HU-REC-05 (criterio 4) · RF-PAG-009. Rol `RECEPCION`. Dice qué pasará con
+        el dinero, sin cambiar nada: `REEMBOLSO_TOTAL` si faltan 48 horas o más
+        para las 15:00 del día de llegada (America/Guatemala) y hubo pago con
+        Stripe; `SIN_REEMBOLSO` si faltan menos; `SIN_PAGOS` si la reserva no
+        tiene pagos. Responde 409 si la reserva no se puede cancelar.
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      responses:
+        '200':
+          description: Efecto económico de cancelar.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VistaPreviaCancelacion'
+              examples:
+                reembolso:
+                  summary: Faltan 48 h o más y se pagó en línea
+                  value:
+                    resultado: REEMBOLSO_TOTAL
+                    montoReembolso: 1912.50
+                sinReembolso:
+                  summary: Faltan menos de 48 h
+                  value:
+                    resultado: SIN_REEMBOLSO
+                    montoReembolso: 0.00
+                sinPagos:
+                  summary: Reserva de Recepción sin pagos
+                  value:
+                    resultado: SIN_PAGOS
+                    montoReembolso: 0.00
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictoCancelacion'
+
+  /api/v1/reservas/{codigo}/cancelar:
+    post:
+      tags: [reservas]
+      operationId: cancelarReserva
+      summary: Cancelar una reserva
+      description: |
+        HU-REC-05, HU-CM-02 (criterio 5) · RF-RES-005, RF-PAG-009. Rol
+        `RECEPCION`. Solo `CONFIRMADA` y nunca de canal externo. Motivo
+        obligatorio ("No se presentó" para quien no llega). Si corresponde, pide el
+        reembolso total a Stripe (pago `REEMBOLSADO`); si Stripe lo rechaza, **no**
+        cancela y responde 409 `REEMBOLSO_RECHAZADO`. Al cancelar: reserva
+        `CANCELADA`, cuenta `CERRADA`, habitación liberada e historial con el
+        motivo. No se envía correo.
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelarReservaPeticion'
+            example:
+              motivo: El huésped cambió sus planes de viaje.
+      responses:
+        '200':
+          description: Reserva cancelada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaDetalle'
+              example:
+                codigo: VS-H3N8P1
+                estado: CANCELADA
+                canal: RECEPCION
+                identificadorExterno: null
+                entrada: '2026-10-15'
+                salida: '2026-10-17'
+                noches: 2
+                numeroHuespedes: 2
+                tipoHabitacion:
+                  id: 1
+                  nombre: Doble Superior
+                habitacion: null
+                huesped:
+                  id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+                huespedesAdicionales: []
+                total: 1912.50
+                saldoPendiente: 1912.50
+                creadaEn: '2026-10-02T10:15:00-06:00'
+                historial:
+                  - estadoAnterior: null
+                    estadoNuevo: CONFIRMADA
+                    responsable: Ana Pérez
+                    fechaHora: '2026-10-02T10:15:00-06:00'
+                    motivo: null
+                  - estadoAnterior: CONFIRMADA
+                    estadoNuevo: CANCELADA
+                    responsable: Ana Pérez
+                    fechaHora: '2026-10-05T11:40:00-06:00'
+                    motivo: El huésped cambió sus planes de viaje.
+        '400':
+          description: Falta el motivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                codigo: DATOS_INVALIDOS
+                mensaje: El motivo de cancelación es obligatorio.
+                detalles:
+                  - campo: motivo
+                    mensaje: El motivo es obligatorio.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La reserva no se puede cancelar o Stripe rechazó el reembolso.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                canal:
+                  summary: Reserva de Booking o Expedia
+                  value:
+                    codigo: CANAL_NO_CANCELABLE
+                    mensaje: Las reservas de canal no se cancelan desde el sistema.
+                    detalles: []
+                estado:
+                  summary: La reserva no está confirmada
+                  value:
+                    codigo: ESTADO_INVALIDO
+                    mensaje: Solo se pueden cancelar reservas confirmadas.
+                    detalles: []
+                reembolso:
+                  summary: Stripe rechazó el reembolso
+                  value:
+                    codigo: REEMBOLSO_RECHAZADO
+                    mensaje: Stripe rechazó el reembolso; la reserva no se canceló.
+                    detalles: []
+
+  /api/v1/reservas/{codigo}/habitacion:
+    put:
+      tags: [reservas]
+      operationId: asignarHabitacion
+      summary: Asignar o cambiar la habitación
+      description: |
+        HU-REC-07 · RF-HAB-002, RF-RES-003. Rol `RECEPCION`. Solo reservas
+        `PENDIENTE_PAGO` o `CONFIRMADA`. La habitación debe ser del mismo tipo, no
+        estar `FUERA_DE_SERVICIO` ni tener otra reserva activa que se traslape (se
+        revalida al guardar). No necesita estar `LIMPIA`. Las opciones salen de
+        GET /habitaciones/disponibles.
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsignarHabitacionPeticion'
+            example:
+              habitacionId: 4
+      responses:
+        '200':
+          description: Habitación asignada; devuelve el detalle actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaDetalle'
+              example:
+                codigo: VS-Q4R8T2
+                estado: CONFIRMADA
+                canal: BOOKING
+                identificadorExterno: BK-99887766
+                entrada: '2026-11-03'
+                salida: '2026-11-06'
+                noches: 3
+                numeroHuespedes: 2
+                tipoHabitacion:
+                  id: 2
+                  nombre: Suite Volcán
+                habitacion:
+                  id: 9
+                  numero: '201'
+                  piso: 2
+                huesped:
+                  id: 52
+                  nombreCompleto: John Smith
+                  correo: john.smith@example.com
+                  telefono: '+1 555 0100'
+                  nacionalidad: Estadounidense
+                  tipoDocumento: PASAPORTE
+                  numeroDocumento: '567890123'
+                huespedesAdicionales: []
+                total: 4350.00
+                saldoPendiente: 0.00
+                creadaEn: '2026-10-02T08:00:00-06:00'
+                historial:
+                  - estadoAnterior: null
+                    estadoNuevo: CONFIRMADA
+                    responsable: BOOKING
+                    fechaHora: '2026-10-02T08:00:00-06:00'
+                    motivo: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La habitación no es válida para la reserva o la reserva ya no permite cambios.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                traslape:
+                  summary: Otra reserva ocupa la habitación en esas fechas
+                  value:
+                    codigo: HABITACION_NO_DISPONIBLE
+                    mensaje: La habitación 201 ya tiene otra reserva en esas fechas.
+                    detalles: []
+                estado:
+                  summary: Reserva en estadía
+                  value:
+                    codigo: ESTADO_INVALIDO
+                    mensaje: No se puede cambiar la habitación durante la estadía.
+                    detalles: []
+
+  /api/v1/reservas/{codigo}/check-in:
+    post:
+      tags: [reservas]
+      operationId: hacerCheckIn
+      summary: Realizar el check-in
+      description: |
+        HU-REC-12 · RF-REC-001. Rol `RECEPCION`. Solo reservas `CONFIRMADA` con hoy
+        entre la fecha de entrada y el día anterior a la salida (America/Guatemala).
+        Exige habitación asignada y `LIBRE` + `LIMPIA`. Reserva `EN_ESTADIA` y
+        habitación `OCUPADA` en una sola operación. Los adicionales se agregan
+        antes con POST /reservas/{codigo}/huespedes-adicionales. Sin cuerpo.
+      parameters:
+        - $ref: '#/components/parameters/CodigoReservaPath'
+      responses:
+        '200':
+          description: Check-in realizado; devuelve el detalle actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservaDetalle'
+              example:
+                codigo: VS-H3N8P1
+                estado: EN_ESTADIA
+                canal: RECEPCION
+                identificadorExterno: null
+                entrada: '2026-10-15'
+                salida: '2026-10-17'
+                noches: 2
+                numeroHuespedes: 2
+                tipoHabitacion:
+                  id: 1
+                  nombre: Doble Superior
+                habitacion:
+                  id: 3
+                  numero: '103'
+                  piso: 1
+                huesped:
+                  id: 45
+                  nombreCompleto: María José López
+                  correo: maria.lopez@example.com
+                  telefono: '+502 5555 1234'
+                  nacionalidad: Guatemalteca
+                  tipoDocumento: DPI
+                  numeroDocumento: '2547896320101'
+                huespedesAdicionales: []
+                total: 1912.50
+                saldoPendiente: 1912.50
+                creadaEn: '2026-10-02T10:15:00-06:00'
+                historial:
+                  - estadoAnterior: null
+                    estadoNuevo: CONFIRMADA
+                    responsable: Ana Pérez
+                    fechaHora: '2026-10-02T10:15:00-06:00'
+                    motivo: null
+                  - estadoAnterior: CONFIRMADA
+                    estadoNuevo: EN_ESTADIA
+                    responsable: Ana Pérez
+                    fechaHora: '2026-10-15T14:05:00-06:00'
+                    motivo: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: No se cumple alguna condición del check-in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                fecha:
+                  summary: Fuera de las fechas permitidas
+                  value:
+                    codigo: CHECKIN_FUERA_DE_FECHA
+                    mensaje: El check-in solo se puede hacer desde la fecha de entrada hasta el día anterior a la salida.
+                    detalles: []
+                sinHabitacion:
+                  summary: La reserva no tiene habitación
+                  value:
+                    codigo: SIN_HABITACION_ASIGNADA
+                    mensaje: Asigna una habitación antes de hacer el check-in.
+                    detalles: []
+                habitacion:
+                  summary: Habitación sucia u ocupada
+                  value:
+                    codigo: HABITACION_NO_LISTA
+                    mensaje: La habitación 103 no está libre y limpia.
+                    detalles: []
+                estado:
+                  summary: La reserva no está confirmada
+                  value:
+                    codigo: ESTADO_INVALIDO
+                    mensaje: Solo se puede hacer check-in de reservas confirmadas.
+                    detalles: []
+
 components:
   securitySchemes:
     bearerAuth:
@@ -869,6 +1766,16 @@ components:
           example:
             codigo: ESTADO_INVALIDO
             mensaje: La acción no se puede realizar en el estado actual.
+            detalles: []
+    ConflictoCancelacion:
+      description: La reserva no se puede cancelar (no está confirmada o es de canal externo).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            codigo: CANAL_NO_CANCELABLE
+            mensaje: Las reservas de canal no se cancelan desde el sistema.
             detalles: []
 
   schemas:
@@ -1563,3 +2470,146 @@ components:
           description: Cambios de estado, del más antiguo al más reciente.
           items:
             $ref: '#/components/schemas/HistorialEstado'
+    RegistroHuespedRespuesta:
+      type: object
+      required: [yaExistia, huesped]
+      properties:
+        yaExistia:
+          type: boolean
+          description: Verdadero si ya había un huésped con ese correo (se usa su perfil sin cambios).
+        huesped:
+          $ref: '#/components/schemas/Huesped'
+    OpcionDisponibleRecepcion:
+      description: Tipo disponible para Recepción, con las habitaciones que quedan.
+      allOf:
+        - type: object
+          required: [tipoHabitacion, capacidad, habitacionesDisponibles]
+          properties:
+            tipoHabitacion:
+              $ref: '#/components/schemas/TipoHabitacionReferencia'
+            capacidad:
+              type: integer
+              minimum: 1
+            habitacionesDisponibles:
+              type: integer
+              minimum: 1
+              description: Habitaciones libres del tipo en todas las noches del rango (el mínimo).
+        - $ref: '#/components/schemas/CotizacionEstadia'
+    ReservaRecepcionPeticion:
+      type: object
+      required: [huespedId, tipoHabitacionId, entrada, salida, numeroHuespedes]
+      properties:
+        huespedId:
+          $ref: '#/components/schemas/Id'
+        tipoHabitacionId:
+          $ref: '#/components/schemas/Id'
+        entrada:
+          $ref: '#/components/schemas/FechaEstadia'
+        salida:
+          $ref: '#/components/schemas/FechaEstadia'
+        numeroHuespedes:
+          type: integer
+          minimum: 1
+        habitacionId:
+          description: Habitación opcional del mismo tipo (reglas de HU-REC-07).
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+    PaginaReservas:
+      type: object
+      required: [contenido, page, size, totalElementos, totalPaginas]
+      properties:
+        contenido:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservaResumen'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+        totalElementos:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPaginas:
+          type: integer
+          minimum: 0
+    ReservaCalendario:
+      type: object
+      description: Barra del Gantt.
+      required: [codigo, huespedPrincipal, entrada, salida, estado, canal, tipoHabitacionId, habitacionId]
+      properties:
+        codigo:
+          $ref: '#/components/schemas/CodigoReserva'
+        huespedPrincipal:
+          type: string
+          description: Nombre completo del huésped principal.
+        entrada:
+          $ref: '#/components/schemas/FechaEstadia'
+        salida:
+          $ref: '#/components/schemas/FechaEstadia'
+        estado:
+          $ref: '#/components/schemas/EstadoReserva'
+        canal:
+          $ref: '#/components/schemas/CanalOrigen'
+        tipoHabitacionId:
+          $ref: '#/components/schemas/Id'
+        habitacionId:
+          description: null = fila "Sin asignar".
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+    CalendarioReservas:
+      type: object
+      required: [desde, hasta, grupos, reservas]
+      properties:
+        desde:
+          $ref: '#/components/schemas/FechaEstadia'
+        hasta:
+          $ref: '#/components/schemas/FechaEstadia'
+        grupos:
+          type: array
+          description: Filas del Gantt agrupadas por tipo de habitación.
+          items:
+            type: object
+            required: [tipoHabitacion, habitaciones]
+            properties:
+              tipoHabitacion:
+                $ref: '#/components/schemas/TipoHabitacionReferencia'
+              habitaciones:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HabitacionReferencia'
+        reservas:
+          type: array
+          description: Reservas activas o FINALIZADA (nunca CANCELADA) que se cruzan con el rango.
+          items:
+            $ref: '#/components/schemas/ReservaCalendario'
+    VistaPreviaCancelacion:
+      type: object
+      required: [resultado, montoReembolso]
+      properties:
+        resultado:
+          type: string
+          enum: [REEMBOLSO_TOTAL, SIN_REEMBOLSO, SIN_PAGOS]
+        montoReembolso:
+          description: Monto que se reembolsaría por Stripe; 0.00 si no hay reembolso.
+          allOf:
+            - $ref: '#/components/schemas/Monto'
+    CancelarReservaPeticion:
+      type: object
+      required: [motivo]
+      properties:
+        motivo:
+          type: string
+          minLength: 1
+          maxLength: 500
+          examples: [No se presentó]
+    AsignarHabitacionPeticion:
+      type: object
+      required: [habitacionId]
+      properties:
+        habitacionId:
+          $ref: '#/components/schemas/Id'
