@@ -315,8 +315,6 @@ paths:
                   - http://localhost:9000/villa-serena-publico/hotel/jardin.jpg
                 ubicacion:
                   direccion: 5a Avenida Norte 12, Antigua Guatemala, Sacatepéquez
-                  latitud: 14.5586
-                  longitud: -90.7295
                 contacto:
                   telefono: '+502 7832 0000'
                   correo: reservas@villaserena.test
@@ -2264,14 +2262,10 @@ components:
             $ref: '#/components/schemas/UrlFoto'
         ubicacion:
           type: object
-          required: [direccion, latitud, longitud]
+          required: [direccion]
           properties:
             direccion:
               type: string
-            latitud:
-              type: [number, 'null']
-            longitud:
-              type: [number, 'null']
         contacto:
           type: object
           required: [telefono, correo]
