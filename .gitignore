@@ -38,3 +38,6 @@ Thumbs.db
 # Environment variables
 .env
 
+
+# Secretos locales (AGENTS.md §3): solo se sube .env.example
+.env
