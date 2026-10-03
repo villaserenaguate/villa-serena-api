@@ -1,10 +1,20 @@
+server:
+  shutdown: graceful
+
 spring:
   application:
     name: api
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/villaserena}
+    username: ${SPRING_DATASOURCE_USERNAME:villaserena}
+    password: ${SPRING_DATASOURCE_PASSWORD:villaserena}
   flyway:
-    # Valores de los placeholders de V6__datos_iniciales.sql. Vienen del
-    # entorno (.env, fuera de Git); ver .env.example. Sin valor, Flyway falla.
-    placeholders:
-      demo_password_hash: ${DEMO_PASSWORD_HASH}
-      canal1_key_hash: ${CANAL1_KEY_HASH}
-      canal2_key_hash: ${CANAL2_KEY_HASH}
+    locations:
+      - classpath:db/migration
+
+hotel:
+  timezone: ${HOTEL_TIMEZONE:America/Guatemala}
