@@ -1,0 +1,10 @@
+extends:
+  - recommended
+rules:
+  # En el hito el API corre en local (http://localhost:8080).
+  no-server-example.com: off
+  # Proyecto académico sin licencia publicada.
+  info-license: off
+  # Ejemplos también deben cumplir sus esquemas, incluidas peticiones/respuestas.
+  no-invalid-schema-examples: error
+  no-invalid-media-type-examples: error
